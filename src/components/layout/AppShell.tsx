@@ -5,7 +5,6 @@ import {
   FolderKanban,
   Calendar,
   MessageSquare,
-  Bell,
   User,
   BarChart3,
   Users,
@@ -17,7 +16,9 @@ import {
   Settings,
   ShieldCheck,
 } from "lucide-react";
+
 import { cn } from "@/lib/utils";
+
 import {
   logout,
   useCurrentUser,
@@ -25,7 +26,9 @@ import {
   type Role,
   useUsers,
 } from "@/lib/auth";
+
 import { useProjects } from "@/lib/project-store";
+
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 
@@ -40,14 +43,12 @@ const clientNav: NavItem[] = [
   { to: "/client/projects", label: "Project Saya", icon: FolderKanban },
   { to: "/client/calendar", label: "Kalender", icon: Calendar },
   { to: "/client/chat", label: "Discussion", icon: MessageSquare },
-  { to: "/client/notifications", label: "Notifikasi", icon: Bell },
   { to: "/client/profile", label: "Profile", icon: User },
 ];
 
 const adminNav: NavItem[] = [
   { to: "/admin", label: "Analytics", icon: LayoutDashboard },
   { to: "/admin/projects", label: "Projects", icon: FolderKanban },
-  { to: "/admin/staff", label: "Staff", icon: Users },
   { to: "/admin/files", label: "Files", icon: FileBox },
   { to: "/admin/reports", label: "Reports", icon: BarChart3 },
   { to: "/admin/chat", label: "Discussion", icon: MessageSquare },
@@ -79,6 +80,23 @@ function useFiles() {
   return data ?? [];
 }
 
+function useWorkspaceName() {
+  const { data } = useQuery({
+    queryKey: ["workspace-settings"],
+    queryFn: async () => {
+      const res = await apiFetch<{ workspace: { name: string } }>(
+        "/api/settings"
+      );
+
+      return res.workspace?.name ?? "ProjectFlow";
+    },
+
+    staleTime: 30_000,
+  });
+
+  return data ?? "ProjectFlow";
+}
+
 function GlobalSearch({ role }: { role: Role }) {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
@@ -99,7 +117,8 @@ function GlobalSearch({ role }: { role: Role }) {
 
     document.addEventListener("mousedown", handler);
 
-    return () => document.removeEventListener("mousedown", handler);
+    return () =>
+      document.removeEventListener("mousedown", handler);
   }, []);
 
   const results: SearchResult[] = [];
@@ -107,7 +126,6 @@ function GlobalSearch({ role }: { role: Role }) {
   if (q.trim().length >= 1) {
     const lower = q.toLowerCase();
 
-    // PROJECT
     projects
       .filter(
         (p) =>
@@ -122,11 +140,13 @@ function GlobalSearch({ role }: { role: Role }) {
           label: p.name,
           sub: `${p.clientId ?? "-"} · ${p.category}`,
           type: "project",
-          to: role === "client" ? "/client/projects" : "/admin/projects",
+          to:
+            role === "client"
+              ? "/client/projects"
+              : "/admin/projects",
         })
       );
 
-    // FILES
     files
       .filter(
         (f: any) =>
@@ -144,7 +164,6 @@ function GlobalSearch({ role }: { role: Role }) {
         })
       );
 
-    // USERS
     if (role === "super_admin") {
       users
         .filter(
@@ -166,31 +185,30 @@ function GlobalSearch({ role }: { role: Role }) {
   }
 
   const iconFor = (type: SearchResult["type"]) => {
-    if (type === "project") {
+    if (type === "project")
       return <FolderKanban className="h-3.5 w-3.5" />;
-    }
 
-    if (type === "file") {
+    if (type === "file")
       return <FileBox className="h-3.5 w-3.5" />;
-    }
 
     return <Users className="h-3.5 w-3.5" />;
   };
 
   const colorFor = (type: SearchResult["type"]) => {
-    if (type === "project") {
+    if (type === "project")
       return "bg-primary/10 text-primary";
-    }
 
-    if (type === "file") {
+    if (type === "file")
       return "bg-success/10 text-success";
-    }
 
     return "bg-info/10 text-info";
   };
 
   return (
-    <div ref={ref} className="relative hidden max-w-md flex-1 md:block">
+    <div
+      ref={ref}
+      className="relative hidden max-w-md flex-1 md:block"
+    >
       <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
 
       <input
@@ -209,7 +227,9 @@ function GlobalSearch({ role }: { role: Role }) {
           {results.length === 0 ? (
             <div className="px-4 py-3 text-sm text-muted-foreground">
               Tidak ada hasil untuk{" "}
-              <span className="font-medium text-foreground">{q}</span>
+              <span className="font-medium text-foreground">
+                {q}
+              </span>
             </div>
           ) : (
             <ul className="max-h-72 divide-y divide-border overflow-y-auto">
@@ -269,6 +289,8 @@ export function AppShell({
 }) {
   const user = useCurrentUser();
 
+  const workspaceName = useWorkspaceName();
+
   const nav =
     role === "client"
       ? clientNav
@@ -287,7 +309,18 @@ export function AppShell({
   const base = role === "client" ? "/client" : "/admin";
 
   const isActive = (to: string) =>
-    to === base ? pathname === to : pathname.startsWith(to);
+    to === base
+      ? pathname === to
+      : pathname.startsWith(to);
+
+  const settingsTo =
+    role === "client"
+      ? "/client/profile"
+      : "/admin/settings";
+
+  /* FIX HEADER */
+  const hideHeader =
+    pathname.includes("/projects");
 
   const Sidebar = (
     <aside className="flex h-full w-64 flex-col border-r border-sidebar-border bg-sidebar">
@@ -297,7 +330,9 @@ export function AppShell({
         </div>
 
         <div className="leading-tight">
-          <p className="text-sm font-semibold">ProjectFlow</p>
+          <p className="text-sm font-semibold">
+            {workspaceName}
+          </p>
 
           <p className="text-[11px] text-muted-foreground">
             {roleLabel[role]} workspace
@@ -322,6 +357,7 @@ export function AppShell({
               )}
             >
               <item.icon className="h-[18px] w-[18px]" />
+
               <span>{item.label}</span>
             </Link>
           );
@@ -337,6 +373,7 @@ export function AppShell({
           className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-muted-foreground transition hover:bg-sidebar-accent hover:text-foreground"
         >
           <LogOut className="h-[18px] w-[18px]" />
+
           Keluar
         </button>
       </div>
@@ -363,52 +400,57 @@ export function AppShell({
       )}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-border bg-background/80 px-4 backdrop-blur-md sm:px-6">
-          <button
-            className="rounded-lg p-2 hover:bg-muted lg:hidden"
-            onClick={() => setOpen(true)}
-          >
-            <Menu className="h-5 w-5" />
-          </button>
 
-          <GlobalSearch role={role} />
+        {!hideHeader && (
+          <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-border bg-background/80 px-4 backdrop-blur-md sm:px-6">
 
-          <div className="ml-auto flex items-center gap-2">
-            <button className="relative rounded-lg p-2 hover:bg-muted">
-              <Bell className="h-5 w-5" />
-
-              <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-destructive" />
+            <button
+              className="rounded-lg p-2 hover:bg-muted lg:hidden"
+              onClick={() => setOpen(true)}
+            >
+              <Menu className="h-5 w-5" />
             </button>
 
-            <button className="rounded-lg p-2 hover:bg-muted">
-              <Settings className="h-5 w-5" />
-            </button>
+            <GlobalSearch role={role} />
 
-            <div className="ml-1 flex items-center gap-2 rounded-xl border border-border bg-card px-2 py-1 shadow-soft">
-              <div className="grid h-7 w-7 place-items-center rounded-lg bg-gradient-primary text-xs font-semibold text-primary-foreground">
-                {user?.initials ?? "ME"}
-              </div>
+            <div className="ml-auto flex items-center gap-2">
+              <Link
+                to={settingsTo}
+                className={cn(
+                  "rounded-lg p-2 hover:bg-muted",
+                  pathname.startsWith(settingsTo) &&
+                    "bg-muted text-foreground"
+                )}
+              >
+                <Settings className="h-5 w-5" />
+              </Link>
 
-              <div className="hidden text-left leading-tight sm:block">
-                <p className="text-xs font-semibold">
-                  {user?.name ?? "Tamu"}
-                </p>
+              <div className="ml-1 flex items-center gap-2 rounded-xl border border-border bg-card px-2 py-1 shadow-soft">
+                <div className="grid h-7 w-7 place-items-center rounded-lg bg-gradient-primary text-xs font-semibold text-primary-foreground">
+                  {user?.initials ?? "ME"}
+                </div>
 
-                <p className="text-[10px] text-muted-foreground">
-                  {roleLabel[role]}
-                </p>
+                <div className="hidden text-left leading-tight sm:block">
+                  <p className="text-xs font-semibold">
+                    {user?.name ?? "Tamu"}
+                  </p>
+
+                  <p className="text-[10px] text-muted-foreground">
+                    {roleLabel[role]}
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
 
-          <button
-            className="rounded-lg p-2 hover:bg-muted lg:hidden"
-            onClick={() => setOpen(false)}
-            aria-hidden
-          >
-            <X className="h-5 w-5 opacity-0" />
-          </button>
-        </header>
+            <button
+              className="rounded-lg p-2 hover:bg-muted lg:hidden"
+              onClick={() => setOpen(false)}
+              aria-hidden
+            >
+              <X className="h-5 w-5 opacity-0" />
+            </button>
+          </header>
+        )}
 
         <main className="animate-fade-in flex-1 p-4 sm:p-6 lg:p-8">
           {children}

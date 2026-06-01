@@ -1,0 +1,26 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class WorkspaceSetting extends Model
+{
+    protected $fillable = ['key', 'value'];
+
+    public static function get(string $key, mixed $default = null): mixed
+    {
+        $row = static::where('key', $key)->first();
+        if (!$row) return $default;
+        $decoded = json_decode($row->value, true);
+        return $decoded !== null ? $decoded : $row->value;
+    }
+
+    public static function set(string $key, mixed $value): void
+    {
+        static::updateOrCreate(
+            ['key' => $key],
+            ['value' => json_encode($value)]
+        );
+    }
+}

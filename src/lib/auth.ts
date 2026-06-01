@@ -15,6 +15,10 @@ export type User = {
   clientId?: string;
   status: "active" | "inactive";
   createdAt: string;
+  phone?: string;
+  location?: string;
+  company?: string;
+  bio?: string;
 };
 
 const PROFILE_KEY = "pf_profile";
@@ -60,6 +64,10 @@ function normalizeUser(user: any): User {
     clientId: user.clientId ?? user.client_id ?? undefined,
     status: user.status as "active" | "inactive",
     createdAt: user.createdAt ?? user.created_at?.slice(0, 10) ?? "",
+    phone: user.phone ?? undefined,
+    location: user.location ?? undefined,
+    company: user.company ?? undefined,
+    bio: user.bio ?? undefined,
   };
 }
 

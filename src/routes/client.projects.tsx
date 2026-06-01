@@ -1,99 +1,89 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-
-import {
-  Search,
-  Plus,
-  Calendar,
-} from "lucide-react";
-
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatusBadge } from "@/components/shared/StatusBadge";
-import { EmptyState } from "@/components/shared/EmptyState";
-
-import { FolderKanban } from "lucide-react";
-
 import { statusLabel } from "@/lib/mock-data";
+import { type Project, type ProjectStatus, useVisibleProjects, useProjectActions } from "@/lib/project-store";
+import { useCurrentUser, useUsers } from "@/lib/auth";
+import { Search, Plus, CheckCircle2, XCircle, Pencil, Trash2, X } from "lucide-react";
 
-import {
-  type ProjectStatus,
-  useVisibleProjects,
-} from "@/lib/project-store";
-
-export const Route = createFileRoute(
-  "/client/projects"
-)({
-  head: () => ({
-    meta: [
-      {
-        title:
-          "Project Saya — ProjectFlow",
-      },
-    ],
-  }),
-
-  component: ClientProjects,
+export const Route = createFileRoute("/client/projects")({
+  head: () => ({ meta: [{ title: "Manage Projects — ProjectFlow" }] }),
+  component: AdminProjects,
 });
 
-const filters: (
-  | ProjectStatus
-  | "all"
-)[] = [
-  "all",
-  "in-progress",
-  "review",
-  "pending",
-  "completed",
-  "on-hold",
-];
+const filters: (ProjectStatus | "all")[] = ["all", "pending", "in-progress", "review", "completed", "on-hold"];
 
-function ClientProjects() {
+function AdminProjects() {
+  const me = useCurrentUser();
+  const users = useUsers();
+  const { updateProject, createProject, deleteProject } = useProjectActions();
+
+  const admins = users
+    .filter((u) => u.role === "admin")
+    .map((a) => ({ id: a.id, name: a.name }));
+
+  const clientUsers = users
+    .filter((u) => u.role === "client")
+    .map((c) => ({ id: c.id, name: c.name }));
+
   const [q, setQ] = useState("");
-
-  const [f, setF] =
-    useState<ProjectStatus | "all">(
-      "all"
-    );
-
+  const [f, setF] = useState<ProjectStatus | "all">("all");
   const projects = useVisibleProjects();
 
-  const list = projects.filter(
-    (p) =>
-      (f === "all" ||
-        p.status === f) &&
-      p.name
-        .toLowerCase()
-        .includes(q.toLowerCase())
-  );
+  const isSuper = me?.role === "super_admin";
+  const isAdmin = me?.role === "admin";
+  const canEdit = isAdmin || isSuper;
+
+  const list = projects.filter((p) => {
+    // ✅ Double protection: client hanya lihat project miliknya
+    if (!isSuper && !isAdmin && p.clientId !== me?.id) return false;
+    if (f !== "all" && p.status !== f) return false;
+    const search = q.toLowerCase();
+    return (
+      p.name.toLowerCase().includes(search) ||
+      // ✅ FIX: gunakan p.client (string nama) yang ada di type Project mock-data
+      p.client.toLowerCase().includes(search)
+    );
+  });
+
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editing, setEditing] = useState<Project | null>(null);
+  const [confirmDel, setConfirmDel] = useState<Project | null>(null);
+
+  const adminName = (id?: string) => users.find((a) => a.id === id)?.name ?? "—";
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       <PageHeader
-        title="Project Saya"
-        description="Semua project yang sedang Anda kerjakan."
+        title="Management Project"
+        description={
+          isSuper
+            ? "Kelola seluruh project, assign admin & client."
+            : "Update status & progress project yang ditugaskan ke Anda."
+        }
         actions={
-          <button className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground shadow-soft">
-            <Plus className="h-4 w-4" />
-
-            Request Project
-          </button>
+          isSuper ? (
+            <button
+              onClick={() => setCreateOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground shadow-soft transition hover:shadow-card"
+            >
+              <Plus className="h-4 w-4" /> Project Baru
+            </button>
+          ) : undefined
         }
       />
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+      <div className="flex flex-col gap-3 sm:flex-row">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-
           <input
             value={q}
-            onChange={(e) =>
-              setQ(e.target.value)
-            }
-            placeholder="Cari project..."
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Cari project atau client..."
             className="w-full rounded-xl border border-input bg-card py-2.5 pl-9 pr-3 text-sm shadow-soft outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
           />
         </div>
-
         <div className="flex flex-wrap gap-1.5 rounded-xl border border-border bg-card p-1 shadow-soft">
           {filters.map((s) => (
             <button
@@ -105,100 +95,470 @@ function ClientProjects() {
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              {s === "all"
-                ? "Semua"
-                : statusLabel[s]}
+              {s === "all" ? "Semua" : statusLabel[s]}
             </button>
           ))}
         </div>
       </div>
 
-      {list.length === 0 ? (
-        <EmptyState
-          icon={FolderKanban}
-          title="Belum ada project"
-          description="Project yang ditugaskan ke akun Anda akan muncul di sini."
-        />
-      ) : (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {list.map((p) => (
-            <Link
-              key={p.id}
-              to="/client/projects/$id"
-              params={{
-                id: p.id,
-              }}
-              className="group rounded-2xl border border-border bg-card p-5 shadow-soft transition hover:-translate-y-0.5 hover:shadow-card animate-slide-up"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                    {p.category}
-                  </p>
-
-                  <h3 className="mt-1 text-base font-semibold leading-snug group-hover:text-primary">
-                    {p.name}
-                  </h3>
-                </div>
-
-                <StatusBadge
-                  status={p.status}
-                />
-              </div>
-
-              <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">
-                {p.description}
-              </p>
-
-              <div className="mt-4">
-                <div className="mb-1.5 flex items-center justify-between text-xs">
-                  <span className="text-muted-foreground">
-                    Progress
-                  </span>
-
-                  <span className="font-semibold">
-                    {p.progress}%
-                  </span>
-                </div>
-
-                <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full rounded-full bg-gradient-primary transition-all"
-                    style={{
-                      width: `${p.progress}%`,
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div className="mt-4 flex items-center justify-between">
-                <div className="flex -space-x-2">
-                  {(p.team ?? []).map(
-                    (t: any) => (
-                      <div
-                        key={t.name}
-                        className="grid h-7 w-7 place-items-center rounded-full border-2 border-card text-[10px] font-semibold text-white"
-                        style={{
-                          background:
-                            t.color,
-                        }}
+      <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-soft">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/40 text-left text-xs uppercase text-muted-foreground">
+            <tr>
+              <th className="px-5 py-3">Project</th>
+              <th className="px-3 py-3">Client</th>
+              <th className="px-3 py-3">Admin</th>
+              <th className="px-3 py-3">Status</th>
+              <th className="px-3 py-3">Progress</th>
+              <th className="px-3 py-3">Deadline</th>
+              <th className="px-3 py-3 text-right">Aksi</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {list.length === 0 && (
+              <tr>
+                <td colSpan={7} className="px-5 py-10 text-center text-sm text-muted-foreground">
+                  Belum ada project.
+                </td>
+              </tr>
+            )}
+            {list.map((p) => (
+              <tr key={p.id} className="transition hover:bg-muted/30 animate-fade-in">
+                <td className="px-5 py-4">
+                  <p className="font-medium">{p.name}</p>
+                  <p className="text-xs text-muted-foreground">{p.category}</p>
+                </td>
+                <td className="px-3 py-4 text-muted-foreground">{p.client}</td>
+                <td className="px-3 py-4 text-muted-foreground">{adminName(p.adminId)}</td>
+                <td className="px-3 py-4">
+                  <StatusBadge status={p.status} />
+                </td>
+                <td className="px-3 py-4">
+                  <div className="flex items-center gap-2">
+                    <div className="h-1.5 w-24 overflow-hidden rounded-full bg-muted">
+                      <div className="h-full bg-gradient-primary" style={{ width: `${p.progress}%` }} />
+                    </div>
+                    <span className="text-xs font-medium">{p.progress}%</span>
+                  </div>
+                </td>
+                <td className="px-3 py-4 text-muted-foreground">{p.deadline}</td>
+                <td className="px-3 py-4">
+                  <div className="flex items-center justify-end gap-1">
+                    {isSuper && p.status === "pending" && (
+                      <>
+                        <button
+                          title="Approve"
+                          onClick={() => updateProject(p.id, { status: "in-progress" })}
+                          className="rounded-lg p-1.5 text-success hover:bg-success/10"
+                        >
+                          <CheckCircle2 className="h-4 w-4" />
+                        </button>
+                        <button
+                          title="Tolak"
+                          onClick={() => updateProject(p.id, { status: "on-hold" })}
+                          className="rounded-lg p-1.5 text-destructive hover:bg-destructive/10"
+                        >
+                          <XCircle className="h-4 w-4" />
+                        </button>
+                      </>
+                    )}
+                    {canEdit && (
+                      <button
+                        title="Update Progress"
+                        onClick={() => setEditing(p)}
+                        className="rounded-lg p-1.5 text-primary hover:bg-primary-soft"
                       >
-                        {t.initials}
-                      </div>
-                    )
-                  )}
-                </div>
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                    )}
+                    {isSuper && (
+                      <button
+                        title="Hapus"
+                        onClick={() => setConfirmDel(p)}
+                        className="rounded-lg p-1.5 text-destructive hover:bg-destructive/10"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
-                <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                  <Calendar className="h-3.5 w-3.5" />
+      {createOpen && isSuper && (
+        <CreateProjectModal
+          admins={admins}
+          clientUsers={clientUsers}
+          onClose={() => setCreateOpen(false)}
+          onSave={async (data) => {
+            await createProject(data);
+            setCreateOpen(false);
+          }}
+        />
+      )}
 
-                  {p.deadline}
-                </div>
-              </div>
-            </Link>
-          ))}
-        </div>
+      {editing && canEdit && (
+        <EditProjectModal
+          project={editing}
+          isSuper={!!isSuper}
+          admins={admins}
+          clientUsers={clientUsers}
+          onClose={() => setEditing(null)}
+          onSave={async (patch) => {
+            await updateProject(editing.id, patch);
+            setEditing(null);
+          }}
+        />
+      )}
+
+      {confirmDel && isSuper && (
+        <Modal title="Hapus Project?" onClose={() => setConfirmDel(null)}>
+          <p className="text-sm text-muted-foreground">
+            Project <span className="font-semibold text-foreground">{confirmDel.name}</span> akan
+            dihapus permanen.
+          </p>
+          <div className="mt-5 flex justify-end gap-2">
+            <button
+              onClick={() => setConfirmDel(null)}
+              className="rounded-xl border border-border px-4 py-2 text-sm font-medium hover:bg-muted"
+            >
+              Batal
+            </button>
+            <button
+              onClick={async () => {
+                await deleteProject(confirmDel.id);
+                setConfirmDel(null);
+              }}
+              className="rounded-xl bg-destructive px-4 py-2 text-sm font-semibold text-destructive-foreground"
+            >
+              Hapus
+            </button>
+          </div>
+        </Modal>
       )}
     </div>
+  );
+}
+
+const inputCls =
+  "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none transition focus:border-ring focus:ring-2 focus:ring-ring/20 placeholder:text-muted-foreground";
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
+      </span>
+      {children}
+    </div>
+  );
+}
+
+function Modal({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center p-4">
+      <div
+        className="absolute inset-0 bg-foreground/30 backdrop-blur-sm animate-fade-in"
+        onClick={onClose}
+      />
+      <div className="relative w-full max-w-md rounded-2xl border border-border bg-card shadow-card animate-slide-up overflow-hidden">
+        <div className="flex items-center justify-between border-b border-border px-6 py-4">
+          <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+          <button
+            onClick={onClose}
+            className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="px-6 py-5">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function CreateProjectModal({
+  admins,
+  clientUsers,
+  onClose,
+  onSave,
+}: {
+  admins: { id: string; name: string }[];
+  clientUsers: { id: string; name: string }[];
+  onClose: () => void;
+  onSave: (d: {
+    name: string;
+    category: string;
+    clientId: string;
+    client: string;
+    adminId: string;
+    deadline: string;
+    description: string;
+  }) => void;
+}) {
+  const [name, setName] = useState("");
+  const [category, setCategory] = useState("Web Development");
+  const [adminId, setAdminId] = useState(admins[0]?.id ?? "");
+  const [clientId, setClientId] = useState(clientUsers[0]?.id ?? "");
+  const [deadline, setDeadline] = useState("");
+  const [description, setDescription] = useState("");
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const c = clientUsers.find((x) => x.id === clientId);
+    if (!c || !adminId) return;
+    onSave({ name, category, clientId: c.id, client: c.name, adminId, deadline, description });
+  };
+
+  return (
+    <Modal title="Project Baru" onClose={onClose}>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <Field label="Nama Project">
+          <input
+            required
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Nama project..."
+            className={inputCls}
+          />
+        </Field>
+
+        <Field label="Kategori">
+          <input
+            required
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            className={inputCls}
+          />
+        </Field>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Assign Admin">
+            <select
+              required
+              value={adminId}
+              onChange={(e) => setAdminId(e.target.value)}
+              className={inputCls}
+            >
+              {admins.length === 0 && <option value="">Tidak ada admin</option>}
+              {admins.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Assign Client">
+            <select
+              required
+              value={clientId}
+              onChange={(e) => setClientId(e.target.value)}
+              className={inputCls}
+            >
+              {clientUsers.length === 0 && <option value="">Tidak ada client</option>}
+              {clientUsers.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+
+        <Field label="Deadline">
+          <input
+            required
+            type="date"
+            value={deadline}
+            onChange={(e) => setDeadline(e.target.value)}
+            className={inputCls}
+          />
+        </Field>
+
+        <Field label="Deskripsi">
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={3}
+            placeholder="Deskripsi singkat project..."
+            className={`${inputCls} resize-none`}
+          />
+        </Field>
+
+        <div className="flex justify-end gap-2 pt-2 border-t border-border">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl border border-border px-4 py-2 text-sm font-medium hover:bg-muted transition"
+          >
+            Batal
+          </button>
+          <button
+            type="submit"
+            className="rounded-xl bg-gradient-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-soft hover:shadow-card transition"
+          >
+            Buat Project
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function EditProjectModal({
+  project,
+  isSuper,
+  admins,
+  clientUsers,
+  onClose,
+  onSave,
+}: {
+  project: Project;
+  isSuper: boolean;
+  admins: { id: string; name: string }[];
+  clientUsers: { id: string; name: string }[];
+  onClose: () => void;
+  onSave: (patch: {
+    status: ProjectStatus;
+    progress: number;
+    deadline: string;
+    description: string;
+    adminId?: string;
+    clientId?: string;
+    client?: string;
+  }) => void;
+}) {
+  const [status, setStatus] = useState<ProjectStatus>(project.status);
+  const [progress, setProgress] = useState(project.progress);
+  const [deadline, setDeadline] = useState(project.deadline);
+  const [description, setDescription] = useState(project.description);
+  const [adminId, setAdminId] = useState(project.adminId ?? "");
+  const [clientId, setClientId] = useState(project.clientId ?? "");
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const patch: {
+      status: ProjectStatus;
+      progress: number;
+      deadline: string;
+      description: string;
+      adminId?: string;
+      clientId?: string;
+      client?: string;
+    } = { status, progress, deadline, description };
+
+    if (isSuper) {
+      patch.adminId = adminId || undefined;
+      const c = clientUsers.find((x) => x.id === clientId);
+      if (c) {
+        patch.clientId = c.id;
+        patch.client = c.name;
+      }
+    }
+    onSave(patch);
+  };
+
+  return (
+    <Modal title={`Update — ${project.name}`} onClose={onClose}>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <Field label="Status">
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value as ProjectStatus)}
+            className={inputCls}
+          >
+            {(Object.keys(statusLabel) as ProjectStatus[]).map((s) => (
+              <option key={s} value={s}>
+                {statusLabel[s]}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label={`Progress (${progress}%)`}>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={progress}
+            onChange={(e) => setProgress(Number(e.target.value))}
+            className="w-full accent-primary"
+          />
+        </Field>
+        <Field label="Deadline">
+          <input
+            type="date"
+            value={deadline}
+            onChange={(e) => setDeadline(e.target.value)}
+            className={inputCls}
+          />
+        </Field>
+        <Field label="Deskripsi">
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={3}
+            className={`${inputCls} resize-none`}
+          />
+        </Field>
+        {isSuper && (
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Assign Admin">
+              <select
+                value={adminId}
+                onChange={(e) => setAdminId(e.target.value)}
+                className={inputCls}
+              >
+                <option value="">— Belum ditugaskan —</option>
+                {admins.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Assign Client">
+              <select
+                value={clientId}
+                onChange={(e) => setClientId(e.target.value)}
+                className={inputCls}
+              >
+                {clientUsers.length === 0 && <option value="">Tidak ada client</option>}
+                {clientUsers.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+        )}
+        <div className="flex justify-end gap-2 pt-2 border-t border-border">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl border border-border px-4 py-2 text-sm font-medium hover:bg-muted transition"
+          >
+            Batal
+          </button>
+          <button
+            type="submit"
+            className="rounded-xl bg-gradient-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-soft hover:shadow-card transition"
+          >
+            Simpan
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }

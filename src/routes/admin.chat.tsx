@@ -2,8 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useRef } from "react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { useUsers, getCurrentUser } from "@/lib/auth";
-import { useVisibleProjects } from "@/lib/project-store"; // ✅ ganti ini
-import { Send, Paperclip, Search } from "lucide-react";
+import { useVisibleProjects } from "@/lib/project-store";
+import { Send, Paperclip, Search, MessageSquareOff } from "lucide-react";
 
 export const Route = createFileRoute("/admin/chat")({
   head: () => ({ meta: [{ title: "Discussion — ProjectFlow" }] }),
@@ -38,21 +38,32 @@ function saveMessages(a: string, b: string, msgs: Message[]) {
 function AdminChat() {
   const me = getCurrentUser();
   const users = useUsers();
-  const allProjects = useVisibleProjects(); // ✅ reactive, sudah difilter adminId === me.id otomatis
+  // useVisibleProjects sudah filter project.adminId === me.id untuk role admin
+  const myProjects = useVisibleProjects();
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  const superAdmin = users.find((u) => u.role === "super_admin");
+  const isSuper = me?.role === "super_admin";
 
-  // ✅ useVisibleProjects untuk role admin sudah return hanya project milik admin ini
-  const myProjects = allProjects;
+  // Super Admin: tampilkan semua admin sebagai staff
+  const staffContacts = isSuper
+    ? users.filter((u) => u.role === "admin")
+    : users.filter((u) => u.role === "admin" && u.id !== me?.id);
 
-  const clientIds = [...new Set(myProjects.map((p) => p.clientId))];
-  const clientContacts = clientIds
-    .map((cid) => users.find((u) => u.clientId === cid))
+  // Super Admin: semua client. Admin: hanya client dari project yang di-assign ke dia
+  const assignedClientIds = isSuper
+    ? [...new Set(users.filter((u) => u.role === "client").map((u) => u.id))]
+    : [...new Set(myProjects.map((p) => p.clientId).filter(Boolean))];
+
+  const clientContacts = assignedClientIds
+    .map((cid) => users.find((u) => u.id === cid))
     .filter(Boolean) as typeof users;
+
+  // Super Admin juga lihat dirinya sendiri tidak perlu kontak internal
+  const superAdmin = !isSuper ? users.find((u) => u.role === "super_admin") : null;
 
   const allContacts = [
     ...(superAdmin ? [superAdmin] : []),
+    ...staffContacts,
     ...clientContacts,
   ];
 
@@ -61,7 +72,6 @@ function AdminChat() {
   const [input, setInput] = useState("");
   const [q, setQ] = useState("");
 
-  // ✅ update selectedId ketika allContacts berubah (misal project baru di-assign)
   useEffect(() => {
     if (!selectedId && allContacts.length > 0) {
       setSelectedId(allContacts[0].id);
@@ -70,13 +80,13 @@ function AdminChat() {
 
   const selected = allContacts.find((c) => c.id === selectedId);
 
-  const filteredSuperAdmin = !q
-    ? superAdmin ? [superAdmin] : []
-    : superAdmin && superAdmin.name.toLowerCase().includes(q.toLowerCase()) ? [superAdmin] : [];
+  const filterByQ = (list: typeof users) =>
+    !q ? list : list.filter((c) => c.name.toLowerCase().includes(q.toLowerCase()));
 
-  const filteredClients = clientContacts.filter((c) =>
-    c.name.toLowerCase().includes(q.toLowerCase())
-  );
+  const filteredSuperAdmin = superAdmin && (!q || superAdmin.name.toLowerCase().includes(q.toLowerCase()))
+    ? [superAdmin] : [];
+  const filteredStaff = filterByQ(staffContacts);
+  const filteredClients = filterByQ(clientContacts);
 
   useEffect(() => {
     if (!me || !selectedId) return;
@@ -117,11 +127,13 @@ function AdminChat() {
 
   const getSubtitle = (c: (typeof users)[0]) => {
     if (c.role === "super_admin") return "Super Admin";
-    const clientProjects = myProjects
-      .filter((p) => p.clientId === c.clientId)
+    if (c.role === "admin") return "Admin";
+    // Untuk client: tampilkan nama project yang terhubung
+    const projectNames = myProjects
+      .filter((p) => p.clientId === c.id)
       .map((p) => p.name)
       .join(", ");
-    return clientProjects || "Client";
+    return projectNames || "Client";
   };
 
   const ContactItem = ({ c }: { c: (typeof users)[0] }) => (
@@ -148,11 +160,22 @@ function AdminChat() {
     </li>
   );
 
+  const SectionLabel = ({ label }: { label: string }) => (
+    <li className="px-3 pt-3 pb-1">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {label}
+      </p>
+    </li>
+  );
+
+  // Untuk admin yang belum di-assign ke project manapun
+  const adminHasNoClients = !isSuper && clientContacts.length === 0;
+
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       <PageHeader
         title="Discussion"
-        description="Komunikasi dengan Super Admin dan client."
+        description="Komunikasi dengan tim dan client."
       />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[280px_1fr]">
@@ -170,39 +193,73 @@ function AdminChat() {
           </div>
 
           <ul className="max-h-[60vh] overflow-y-auto">
+            {/* Internal: Super Admin (hanya untuk non-super_admin) */}
             {filteredSuperAdmin.length > 0 && (
               <>
-                <li className="px-3 pt-3 pb-1">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Internal</p>
-                </li>
+                <SectionLabel label="Internal" />
                 {filteredSuperAdmin.map((c) => <ContactItem key={c.id} c={c} />)}
               </>
             )}
 
+            {/* Staff: semua admin */}
+            {filteredStaff.length > 0 && (
+              <>
+                <SectionLabel label="Staff" />
+                {filteredStaff.map((c) => <ContactItem key={c.id} c={c} />)}
+              </>
+            )}
+
+            {/* Clients: hanya yang terhubung via project */}
             {filteredClients.length > 0 && (
               <>
-                <li className="px-3 pt-3 pb-1">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Clients</p>
-                </li>
+                <SectionLabel label="Clients" />
                 {filteredClients.map((c) => <ContactItem key={c.id} c={c} />)}
               </>
             )}
 
-            {filteredSuperAdmin.length === 0 && filteredClients.length === 0 && (
-              <li className="px-4 py-8 text-center text-xs text-muted-foreground">
-                Tidak ada kontak ditemukan.
+            {/* Admin belum di-assign ke client manapun */}
+            {!isSuper && filteredClients.length === 0 && !q && (
+              <li className="px-3 pt-3 pb-1">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Clients
+                </p>
+                <p className="mt-2 px-1 pb-3 text-xs text-muted-foreground">
+                  Belum ada client yang di-assign ke kamu.
+                </p>
               </li>
             )}
+
+            {/* Tidak ada hasil search */}
+            {filteredSuperAdmin.length === 0 &&
+              filteredStaff.length === 0 &&
+              filteredClients.length === 0 &&
+              q && (
+                <li className="px-4 py-8 text-center text-xs text-muted-foreground">
+                  Tidak ada kontak ditemukan.
+                </li>
+              )}
           </ul>
         </aside>
 
         <section className="flex h-[70vh] flex-col rounded-2xl border border-border bg-card shadow-soft">
-          {selected ? (
+          {/* Admin belum di-assign sama sekali */}
+          {adminHasNoClients && !selected ? (
+            <div className="flex h-full flex-col items-center justify-center gap-3 text-center px-6">
+              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-muted">
+                <MessageSquareOff className="h-6 w-6 text-muted-foreground" />
+              </div>
+              <p className="text-sm font-medium">Belum terhubung ke client</p>
+              <p className="text-xs text-muted-foreground max-w-xs">
+                Kamu belum di-assign ke project manapun. Hubungi Super Admin untuk mendapatkan akses client.
+              </p>
+            </div>
+          ) : selected ? (
             <>
               <div className="border-b border-border p-4">
                 <p className="font-semibold">{selected.name}</p>
                 <p className="text-xs text-muted-foreground">
-                  {getSubtitle(selected)} · {selected.status === "active" ? "aktif" : "nonaktif"}
+                  {getSubtitle(selected)} ·{" "}
+                  {selected.status === "active" ? "aktif" : "nonaktif"}
                 </p>
               </div>
 
@@ -222,8 +279,14 @@ function AdminChat() {
                       >
                         {m.initials}
                       </div>
-                      <div className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-sm ${isMe ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
-                        {!isMe && <p className="mb-0.5 text-xs font-semibold opacity-70">{m.user}</p>}
+                      <div
+                        className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-sm ${
+                          isMe ? "bg-primary text-primary-foreground" : "bg-muted"
+                        }`}
+                      >
+                        {!isMe && (
+                          <p className="mb-0.5 text-xs font-semibold opacity-70">{m.user}</p>
+                        )}
                         <p>{m.text}</p>
                         <p className={`mt-1 text-[10px] ${isMe ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
                           {m.time}
@@ -256,9 +319,7 @@ function AdminChat() {
             </>
           ) : (
             <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-              {myProjects.length === 0
-                ? "Belum ada project yang ditugaskan ke Anda."
-                : "Pilih kontak untuk memulai percakapan."}
+              Pilih kontak untuk memulai percakapan.
             </div>
           )}
         </section>
